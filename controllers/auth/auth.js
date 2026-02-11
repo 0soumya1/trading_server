@@ -105,6 +105,39 @@ const login = async (req, res) => {
 
 // If the password is correct, it generates an access token and a refresh token for the user. It also checks if the user's phone number and login PIN exist and includes that information in the response. Finally, it sends a response with the user's name, email, user ID, and token information.
 
+const refreshToken = async (req, res) => {
+  const { type, refresh_token } = req.body;
+  if (!type || !["socket", "app"].includes(type) || !refresh_token) {
+    throw new BadRequestError("Invalid body");
+  }
+  try {
+    let accessToken, newRefreshToken;
+    if (type === "socket") {
+      ({ accessToken, newRefreshToken } = await generateRefreshTokens(
+        refresh_token,
+        process.env.REFRESH_SCOKET_TOKEN_SECRET,
+        process.env.REFRESH_SCOKET_TOKEN_EXPIRY,
+        process.env.SOCKET_TOKEN_SECRET,
+        process.env.SOCKET_TOKEN_EXPIRY,
+      ));
+    } else if (type === "app") {
+      ({ accessToken, newRefreshToken } = await generateRefreshTokens(
+        refresh_token,
+        process.env.REFRESH_TOKEN_SECRET,
+        process.env.REFRESH_SOCKET_TOKEN_EXPIRY,
+        process.env.JWT_SECRET,
+        process.env.ACCESS_TOKEN_EXPIRY,
+      ));
+    }
+    res
+      .status(StatusCodes.OK)
+      .json({ access_token: accessToken, refresh_token: newRefreshToken });
+  } catch (err) {
+    console.error("Error in refresh token endpoint: ", err);
+    throw new UnauthenticateError("Invalid token");
+  }
+};
+
 async function generateRefreshTokens(
   token,
   refresh_secret,
@@ -133,4 +166,12 @@ async function generateRefreshTokens(
   }
 }
 
-export { register, login };
+const logout = async (req, res) => {
+  const accessToken = req.headers.authorization?.split(" ")[1];
+  const decodedToken = jwt.decode(accessToken, process.env.JWT_SECRET);
+  const userId = decodedToken?.userId;
+  await User.updateOne({ _id: userId }, { $unset: { biometricKey: 1 } });
+  res.status(StatusCodes.OK).json({ message: "Logged out successfully" });
+};
+
+export { register, login, logout, refreshToken };
